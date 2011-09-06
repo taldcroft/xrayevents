@@ -1,6 +1,18 @@
+from __future__ import division
 import numpy as np
 import pywcs
 import pyfits
+
+def arange_inclusive(x0, x1, binx):
+    """Return np.arange(x0, x1, binx) except that range is inclusive of x1.
+    """
+    delx = (x1 - x0)
+    nbin = delx / binx
+    if abs(round(nbin) - nbin) < 1e-8:
+        return np.linspace(x0, x1, round(nbin) + 1)
+    else:
+        return np.arange(x0, x1, binx, dtype=np.float)
+        
 
 def event_filter(filters, events=None):
     if events is None:
@@ -50,10 +62,8 @@ class XrayEvents(object):
     def sky2pix(self, x, y):
         return self.wcs.wcs_sky2pix([[x, y]], 1)[0]
 
-    def binned(self,
-               x0=None, x1=None, binx=1.0,
-               y0=None, y1=None, biny=1.0,
-               filters=None):
+    def binned(self, x0=None, x1=None, binx=1.0, y0=None, y1=None, biny=1.0,
+               filters=None, dtype=np.int32):
         binx = float(binx)
         biny = float(biny)
 
@@ -73,8 +83,8 @@ class XrayEvents(object):
         events = event_filter(filters, events[ok])
 
         img, x_bins, y_bins = np.histogram2d(events['y'], events['x'],
-                                             bins=[np.arange(y0, y1, biny),
-                                                   np.arange(x0, x1, binx)])
+                                             bins=[arange_inclusive(y0, y1, biny),
+                                                   arange_inclusive(x0, x1, binx)])
 
         # Find the position in image coords of the sky pix reference position
         # The -0.5 assumes that image coords refer to the center of the image bin.
@@ -111,6 +121,6 @@ class XrayEvents(object):
         header.update('LTV1', imgx0)
         header.update('LTV2', imgy0)
 
-        hdu = pyfits.PrimaryHDU(np.array(img, dtype=np.int32), header=header)
+        hdu = pyfits.PrimaryHDU(np.array(img, dtype=dtype), header=header)
         return hdu
 
