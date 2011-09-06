@@ -12,7 +12,7 @@ import xrayevents
 # dmcopy acis_evt2.fits.gz'[bin x=4000:4100:10,y=4000:4100:10]' \
 #        acis_dm_bin10_img.fits.gz
 
-evt = xrayevents.XrayEvents('t/acis_evt2.fits.gz')
+evt = xrayevents.XrayEvents('acis_evt2.fits')
 
 img = evt.image(x0=4000, x1=4100, binx=10, y0=4000, y1=4100, biny=10)
 img.writeto('bin10_img.fits', clobber=True)
@@ -50,4 +50,16 @@ for region in regions:
 print regions[0].name
 print regions[0].coord_format
 print regions[0].coord_list
+
+img2 = evt.image(binx=5, biny=5)
+
+clf()
+imshow(img2.data, interpolation='nearest', vmin=0, vmax=50)
+ax = gca()
+
+regions_img = regions.as_imagecoord(img2.header)
+patches, artists = regions_img.get_mpl_patches_texts()
+for patch in patches:
+    patch.set_edgecolor('yellow')
+    ax.add_patch(patch)
 
