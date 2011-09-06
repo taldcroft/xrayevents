@@ -1,3 +1,4 @@
+import numpy as np
 import pyfits
 import pywcs
 import re
@@ -5,23 +6,30 @@ import xrayevents
 
 import nose.tools as nt
 
-def test_bin(bin=4):
-    evts = XrayEvents('t/acis_evt2.fits.gz')
-    print evts.pix2sky(4096.5, 4096.5)
-    nt.assert_equal(1,2)
+# Some code for reference
+# hdus = pyfits.open('t/acis_evt2.fits.gz')
+# header = hdus[1].header
+# wcs = pywcs.WCS(header=header, keysel=['pixel'], colsel=[11,12])
+
+def test_image_bin1():
+    """Compare to:
+    dmcopy acis_evt2.fits.gz'[energy=2000:5000][bin x=4000:4100,y=4000:4100]' acis_dm_bin1_img.fits.gz
+    """
+    evt = xrayevents.XrayEvents('t/acis_evt2.fits.gz')
+
+    img = evt.image(x0=4000, x1=4100, binx=1, y0=4000, y1=4100, biny=1,
+                    filters=[('energy', 2000., 5000.)])
+    img.writeto('t/acis_py_bin1_img.fits', clobber=True)
+    dmimg = pyfits.open('t/acis_dm_bin1_img.fits.gz')[0]
+    assert(np.all(img.data == dmimg.data))
     
-# evts = XrayEvents('t/acis_evt2.fits.gz')
-# print evts.pix2sky(4096.5, 4096.5)
+def test_image_bin10():
+    """Compare to:
+    dmcopy acis_evt2.fits.gz'[bin x=4000:4100:10,y=4000:4100:10]' acis_dm_bin10_img.fits.gz
+    """
+    evt = xrayevents.XrayEvents('t/acis_evt2.fits.gz')
 
-
-hdus = pyfits.open('t/acis_evt2.fits.gz')
-header = hdus[1].header
-wcs = pywcs.WCS(header=header, keysel=['pixel'], colsel=[11,12])
-evt = xrayevents.XrayEvents('t/acis_evt2.fits.gz')
-
-img = evt.image(x0=4000, x1=4100, binx=10, y0=4000, y1=4100, biny=10)
-img.writeto('t/acis_bin10_py_img.fits', clobber=True)
-
-img = evt.image(x0=4000, x1=4100, binx=1, y0=4000, y1=4100, biny=1)
-img.writeto('t/acis_bin1_py_img.fits', clobber=True)
-
+    img = evt.image(x0=4000, x1=4100, binx=10, y0=4000, y1=4100, biny=10)
+    img.writeto('t/acis_py_bin10_img.fits', clobber=True)
+    dmimg = pyfits.open('t/acis_dm_bin10_img.fits.gz')[0]
+    assert(np.all(img.data == dmimg.data))

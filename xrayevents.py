@@ -14,25 +14,26 @@ def arange_inclusive(x0, x1, binx):
         return np.arange(x0, x1, binx, dtype=np.float)
         
 
-def event_filter(filters, events=None):
-    if events is None:
-        events = self.events
+def event_filter(events, filters):
     if not filters:
         return events
 
     ok = np.ones(len(events), dtype=np.bool)
-    for colname, limits in filters:
-        colvals = events.field(colname)
-        try:
-            lo, hi = limits
+    for filter_ in filters:
+        colname = filter_[0]
+        colvals = events[colname]
+        if len(filter_) == 2:
+            ok &= (colvals == filter_[1])
+        elif len(filter_) == 3:
+            lo, hi = filter_[1], filter_[2]
             if lo is None and hi is not None:
                 ok &= (colvals < hi)
             elif lo is not None and hi is None:
                 ok &= (colvals >= lo)
             elif lo is not None and hi is not None:
                 ok &= (colvals >= lo) & (colvals < hi)
-        except TypeError:
-            ok &= (colvals == limits)
+            else:
+                raise ValueError('Filter must contain either 2 or 3 values')
 
     return events[ok]
 
@@ -80,11 +81,17 @@ class XrayEvents(object):
         i0, i1 = np.searchsorted(events['x'], [x0, x1])
         events = events[i0:i1]
         ok = (events['y'] >= y0) & (events['y'] <= y1)
-        events = event_filter(filters, events[ok])
+        events = event_filter(events[ok], filters)
 
-        img, x_bins, y_bins = np.histogram2d(events['y'], events['x'],
-                                             bins=[arange_inclusive(y0, y1, biny),
-                                                   arange_inclusive(x0, x1, binx)])
+        x_bins = arange_inclusive(x0, x1, binx)
+        y_bins = arange_inclusive(y0, y1, biny)
+        if len(events) > 0:
+            # Bug in np.histogram2d as of July 2011
+            # http://old.nabble.com/histogram2d-error-with-empty-inputs-td31940769.html
+            img, x_bins, y_bins = np.histogram2d(events['y'], events['x'],
+                                                 bins=[y_bins, x_bins])
+        else:
+            img = np.zeros((len(x_bins) - 1, len(y_bins) - 1))
 
         # Find the position in image coords of the sky pix reference position
         # The -0.5 assumes that image coords refer to the center of the image bin.
