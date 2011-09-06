@@ -56,13 +56,13 @@ class XrayEvents(object):
         else:
             raise ValueError('No RA---TAN ctype found')
 
-    def pix2sky(self, i, j):
-        return self.wcs.wcs_pix2sky([[i, j]], 1)[0]
+    def pix2sky(self, x, y):
+        return self.wcs.wcs_pix2sky([[x, y]], 1)[0]
 
-    def sky2pix(self, x, y):
-        return self.wcs.wcs_sky2pix([[x, y]], 1)[0]
+    def sky2pix(self, ra, dec):
+        return self.wcs.wcs_sky2pix([[ra, dec]], 1)[0]
 
-    def binned(self, x0=None, x1=None, binx=1.0, y0=None, y1=None, biny=1.0,
+    def image(self, x0=None, x1=None, binx=1.0, y0=None, y1=None, biny=1.0,
                filters=None, dtype=np.int32):
         binx = float(binx)
         biny = float(biny)
