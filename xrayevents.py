@@ -1,10 +1,13 @@
 from __future__ import division
+
 import numpy as np
-import pywcs
-import pyfits
+from astropy import wcs
+from astropy.io import fits
+
 
 def arange_inclusive(x0, x1, binx):
-    """Return np.arange(x0, x1, binx) except that range is inclusive of x1.
+    """
+    Return np.arange(x0, x1, binx) except that range is inclusive of x1.
     """
     delx = (x1 - x0)
     nbin = delx / binx
@@ -12,9 +15,22 @@ def arange_inclusive(x0, x1, binx):
         return np.linspace(x0, x1, round(nbin) + 1)
     else:
         return np.arange(x0, x1, binx, dtype=np.float)
-        
+
 
 def event_filter(events, filters):
+    """
+    Filter ``events`` based on matching or limits on event columns.
+
+    ``filters`` must be a list of tuples either 2 or 3 elements long:
+
+    - (col_name, value)
+    - (col_name, low_value | None, high_value | None)
+
+    :param events: table of events
+    :param filters: list of tuples defining filters
+
+    :returns: filtered table of events
+    """
     if not filters:
         return events
 
@@ -37,16 +53,24 @@ def event_filter(events, filters):
 
     return events[ok]
 
+
 class XrayEvents(object):
     def __init__(self, filename, hdu=1):
-        self.filename= filename
-        hdus = pyfits.open(filename)
+        """
+        Object containing an X-ray event file with WCS and binning convenience methods
+
+        :param filename: event FITS file
+        :hdu: HDU number containing the event data table (default=1)
+        """
+        self.filename = filename
+        hdus = fits.open(filename)
         self.header = hdus[hdu].header
         self.hdus = hdus
         events = hdus[hdu].data
         self.events = events[np.argsort(events['x'])]
-        self.wcs = pywcs.WCS(self.header, keysel=['pixel'],
-                             colsel=[self._find_col('RA---TAN'), self._find_col('DEC--TAN')])
+        self.wcs = wcs.WCS(self.header, keysel=['pixel'],
+                           colsel=[self._find_col('RA---TAN'),
+                                   self._find_col('DEC--TAN')])
 
     def _find_col(self, hdrkey):
         """Return the column number corresponding to the RA or DEC coordinate.
@@ -58,13 +82,44 @@ class XrayEvents(object):
             raise ValueError('No RA---TAN ctype found')
 
     def pix2sky(self, x, y):
+        """
+        Get sky coordinates for (x, y)
+
+        :param x: Sky pixel x value
+        :param y: Sky pixel y value
+
+        :returns: Sky world coordinate (ra, dec) values
+        """
         return self.wcs.wcs_pix2sky([[x, y]], 1)[0]
 
     def sky2pix(self, ra, dec):
+        """
+        Get pixel coordinates for (ra, dec)
+
+        :param ra: Sky ra value
+        :param dec: Sky dec value
+
+        :returns: pixel coordinate (x, y) values
+        """
         return self.wcs.wcs_sky2pix([[ra, dec]], 1)[0]
 
     def image(self, x0=None, x1=None, binx=1.0, y0=None, y1=None, biny=1.0,
-               filters=None, dtype=np.int32):
+              filters=None, dtype=np.int32):
+        """
+        Create a binned image corresponding to the X-ray event (x, y) pairs.
+
+        :param x0: lower limit of x (default = min(x))
+        :param x1: upper limit of x (default = max(x))
+        :param binx: bin size in x
+        :param y0: lower limit of y (default = min(y))
+        :param y1: upper limit of y (default = max(y))
+        :param biny: bin size in y
+        :param filters: table filters to apply using ``event_filters()``
+        :param dytpe: output image array dtype
+
+        :returns: fits.PrimaryHDU object with binned image
+        """
+
         binx = float(binx)
         biny = float(biny)
 
@@ -99,35 +154,34 @@ class XrayEvents(object):
         y_crpix = (self.wcs.wcs.crpix[1] - (y0 - biny / 2.0)) / biny
 
         # Create the image => sky transformation
-        wcs = pywcs.WCS(naxis=2)
-        wcs.wcs.equinox = 2000.0
-        wcs.wcs.crpix = [x_crpix, y_crpix]
-        wcs.wcs.cdelt = [self.wcs.wcs.cdelt[0] * binx, self.wcs.wcs.cdelt[1] * biny]
-        wcs.wcs.cunit = [self.wcs.wcs.cunit[0], self.wcs.wcs.cunit[1]]
-        wcs.wcs.crval = [self.wcs.wcs.crval[0], self.wcs.wcs.crval[1]]
-        wcs.wcs.ctype = [self.wcs.wcs.ctype[0], self.wcs.wcs.ctype[1]]
-        header = wcs.to_header()
+        w = wcs.WCS(naxis=2)
+        w.wcs.equinox = 2000.0
+        w.wcs.crpix = [x_crpix, y_crpix]
+        w.wcs.cdelt = [self.wcs.wcs.cdelt[0] * binx, self.wcs.wcs.cdelt[1] * biny]
+        w.wcs.cunit = [self.wcs.wcs.cunit[0], self.wcs.wcs.cunit[1]]
+        w.wcs.crval = [self.wcs.wcs.crval[0], self.wcs.wcs.crval[1]]
+        w.wcs.ctype = [self.wcs.wcs.ctype[0], self.wcs.wcs.ctype[1]]
+        header = w.to_header()
 
         # Create the image => physical transformation and add to header
-        wcs = pywcs.WCS(naxis=2)
-        wcs.wcs.crpix = [0.5, 0.5]
-        wcs.wcs.cdelt = [binx, biny]
-        wcs.wcs.crval = [x0, y0]
-        wcs.wcs.ctype = ['x', 'y']
+        w = wcs.WCS(naxis=2)
+        w.wcs.crpix = [0.5, 0.5]
+        w.wcs.cdelt = [binx, biny]
+        w.wcs.crval = [x0, y0]
+        w.wcs.ctype = ['x', 'y']
 
-        for key, val in wcs.to_header().items():
+        for key, val in w.to_header().items():
             header.update(key + 'P', val)
         header.update('WCSTY1P', 'PHYSICAL')
         header.update('WCSTY2P', 'PHYSICAL')
 
         # Set LTVi and LTMi_i keywords (seems to be needed for ds9)
-        imgx0, imgy0 = wcs.wcs_sky2pix([[0.0, 0.0]], 1)[0]
-        imgx1, imgy1 = wcs.wcs_sky2pix([[1.0, 1.0]], 1)[0]
+        imgx0, imgy0 = w.wcs_sky2pix([[0.0, 0.0]], 1)[0]
+        imgx1, imgy1 = w.wcs_sky2pix([[1.0, 1.0]], 1)[0]
         header.update('LTM1_1', imgx1 - imgx0)
         header.update('LTM2_2', imgy1 - imgy0)
         header.update('LTV1', imgx0)
         header.update('LTV2', imgy0)
 
-        hdu = pyfits.PrimaryHDU(np.array(img, dtype=dtype), header=header)
+        hdu = fits.PrimaryHDU(np.array(img, dtype=dtype), header=header)
         return hdu
-

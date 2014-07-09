@@ -1,18 +1,28 @@
-import numpy as np
-import pyfits
-import pywcs
+"""
+Example interactive usage of xrayevent binning.
+
+Usage::
+
+  % ipython --pylab
+  >>> run -i examples.py
+
+"""
+
+from astropy.io import fits
 import xrayevents
 
 # Some code for reference
-# hdus = pyfits.open('t/acis_evt2.fits.gz')
+# from astropy.io import fits
+# from astropy import wcs
+# hdus = fits.open('t/acis_evt2.fits.gz')
 # header = hdus[1].header
-# wcs = pywcs.WCS(header=header, keysel=['pixel'], colsel=[11,12])
+# wcs = wcs.WCS(header=header, keysel=['pixel'], colsel=[11,12])
 
 #
 # dmcopy acis_evt2.fits.gz'[bin x=4000:4100:10,y=4000:4100:10]' \
 #        acis_dm_bin10_img.fits.gz
 
-evt = xrayevents.XrayEvents('acis_evt2.fits')
+evt = xrayevents.XrayEvents('t/acis_evt2.fits.gz')
 
 img = evt.image(x0=4000, x1=4100, binx=10, y0=4000, y1=4100, biny=10)
 img.writeto('bin10_img.fits', clobber=True)
@@ -20,7 +30,7 @@ img.writeto('bin10_img.fits', clobber=True)
 print img.header
 print img.data
 
-dmimg = pyfits.open('t/acis_dm_bin10_img.fits.gz')[0]
+dmimg = fits.open('t/acis_dm_bin10_img.fits.gz')[0]
 print dmimg.header
 print dmimg.data
 
