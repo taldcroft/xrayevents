@@ -5,7 +5,7 @@ from astropy import wcs
 from astropy.io import fits
 
 
-def arange_inclusive(x0, x1, binx):
+def _arange_inclusive(x0, x1, binx):
     """
     Return np.arange(x0, x1, binx) except that range is inclusive of x1.
     """
@@ -17,6 +17,36 @@ def arange_inclusive(x0, x1, binx):
         return np.arange(x0, x1, binx, dtype=np.float)
 
 
+def get_event_hdu_wcs(hdus, hdu_num=None):
+    """
+    Get the event list table and corresponding WCS in ``hdus``
+
+    Raises TypeError if the ``hdus`` do not contain a valid event list with
+    defined WCS info.
+
+    :param hdus: FITS HDU list object
+    :param hdu_num: HDU number (default=first matching HDU)
+    :returns hdu, wcs: tuple of HDU and corresponding WCS object.
+    """
+    if hdu_num is None:
+        hdus = hdus[1:]
+    else:
+        hdus = [hdus[hdu_num]]
+
+    for hdu in hdus:
+        colnames = [col.name.lower() for col in hdu.columns]
+        try:
+            x_idx = colnames.index('x') + 1
+            y_idx = colnames.index('y') + 1
+            w = wcs.WCS(hdu.header, keysel=['pixel'], colsel=(x_idx, y_idx))
+        except:
+            pass
+        else:
+            return hdu, w
+    else:
+        raise TypeError('FITS file has no event table extensions')
+
+
 def event_filter(events, filters):
     """
     Filter ``events`` based on matching or limits on event columns.
@@ -26,7 +56,6 @@ def event_filter(events, filters):
     - (col_name, value)
     - (col_name, low_value | None, high_value | None)
 
-    :param events: table of events
     :param filters: list of tuples defining filters
 
     :returns: filtered table of events
@@ -54,54 +83,41 @@ def event_filter(events, filters):
     return events[ok]
 
 
-class XrayEvents(object):
-    def __init__(self, filename, hdu=1):
+class FITSEventList(object):
+    def __init__(self, hdus, hdu_num=None):
         """
         Object containing an X-ray event file with WCS and binning convenience methods
 
-        :param filename: event FITS file
-        :hdu: HDU number containing the event data table (default=1)
+        :hdus: FITS HDU list object containing an event data table
+        :param hdu_num: HDU number (default=first matching HDU)
         """
-        self.filename = filename
-        hdus = fits.open(filename)
-        self.header = hdus[hdu].header
-        self.hdus = hdus
-        events = hdus[hdu].data
-        self.events = events[np.argsort(events['x'])]
-        self.wcs = wcs.WCS(self.header, keysel=['pixel'],
-                           colsel=[self._find_col('RA---TAN'),
-                                   self._find_col('DEC--TAN')])
+        self.event_hdu, self.wcs = get_event_hdu_wcs(hdus, hdu_num)
+        self.header = self.event_hdu.header
+        events = self.event_hdu.data
+        events_x = events['x']
+        self.events = events[np.argsort(events_x)]
 
-    def _find_col(self, hdrkey):
-        """Return the column number corresponding to the RA or DEC coordinate.
+    def pix2world(self, x, y):
         """
-        for key, val in self.header.items():
-            if val == hdrkey:
-                return key[5:]
-        else:
-            raise ValueError('No RA---TAN ctype found')
+        Get world coordinates for (x, y)
 
-    def pix2sky(self, x, y):
+        :param x: Pixel x value
+        :param y: Pixel y value
+
+        :returns: World coordinate (ra, dec) values
         """
-        Get sky coordinates for (x, y)
+        return self.wcs.wcs_pix2world([[x, y]], 1)[0]
 
-        :param x: Sky pixel x value
-        :param y: Sky pixel y value
-
-        :returns: Sky world coordinate (ra, dec) values
-        """
-        return self.wcs.wcs_pix2sky([[x, y]], 1)[0]
-
-    def sky2pix(self, ra, dec):
+    def world2pix(self, ra, dec):
         """
         Get pixel coordinates for (ra, dec)
 
-        :param ra: Sky ra value
-        :param dec: Sky dec value
+        :param ra: World ra value
+        :param dec: World dec value
 
         :returns: pixel coordinate (x, y) values
         """
-        return self.wcs.wcs_sky2pix([[ra, dec]], 1)[0]
+        return self.wcs.wcs_world2pix([[ra, dec]], 1)[0]
 
     def image(self, x0=None, x1=None, binx=1.0, y0=None, y1=None, biny=1.0,
               filters=None, dtype=np.int32):
@@ -138,8 +154,8 @@ class XrayEvents(object):
         ok = (events['y'] >= y0) & (events['y'] <= y1)
         events = event_filter(events[ok], filters)
 
-        x_bins = arange_inclusive(x0, x1, binx)
-        y_bins = arange_inclusive(y0, y1, biny)
+        x_bins = _arange_inclusive(x0, x1, binx)
+        y_bins = _arange_inclusive(y0, y1, biny)
         if len(events) > 0:
             # Bug in np.histogram2d as of July 2011
             # http://old.nabble.com/histogram2d-error-with-empty-inputs-td31940769.html
@@ -171,17 +187,32 @@ class XrayEvents(object):
         w.wcs.ctype = ['x', 'y']
 
         for key, val in w.to_header().items():
-            header.update(key + 'P', val)
-        header.update('WCSTY1P', 'PHYSICAL')
-        header.update('WCSTY2P', 'PHYSICAL')
+            header[key + 'P'] = val
+        header['WCSTY1P'] = 'PHYSICAL'
+        header['WCSTY2P'] = 'PHYSICAL'
 
         # Set LTVi and LTMi_i keywords (seems to be needed for ds9)
-        imgx0, imgy0 = w.wcs_sky2pix([[0.0, 0.0]], 1)[0]
-        imgx1, imgy1 = w.wcs_sky2pix([[1.0, 1.0]], 1)[0]
-        header.update('LTM1_1', imgx1 - imgx0)
-        header.update('LTM2_2', imgy1 - imgy0)
-        header.update('LTV1', imgx0)
-        header.update('LTV2', imgy0)
+        imgx0, imgy0 = w.wcs_world2pix([[0.0, 0.0]], 1)[0]
+        imgx1, imgy1 = w.wcs_world2pix([[1.0, 1.0]], 1)[0]
+        header['LTM1_1'] = imgx1 - imgx0
+        header['LTM2_2'] = imgy1 - imgy0
+        header['LTV1'] = imgx0
+        header['LTV2'] = imgy0
 
         hdu = fits.PrimaryHDU(np.array(img, dtype=dtype), header=header)
         return hdu
+
+
+class XrayEvents(FITSEventList):
+    def __init__(self, filename, hdu=None):
+        """
+        Object containing an X-ray event file with WCS and binning convenience methods.
+        Legacy version that accepts a filename.
+
+        :param filename: event FITS file
+        :hdu: HDU number containing the event data table (default=first event table)
+        """
+        self.filename = filename
+        hdus = fits.open(filename)
+        super(XrayEvents, self).__init__(hdus, hdu)
+        hdus.close()
