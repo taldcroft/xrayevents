@@ -1,7 +1,12 @@
 
 
+import re
+import warnings
+from astropy.coordinates import SkyCoord
+import astropy.units as u
+
 import numpy as np
-from astropy import wcs
+from astropy.wcs import WCS, FITSFixedWarning
 from astropy.io import fits
 
 
@@ -34,15 +39,42 @@ def get_event_hdu_wcs(hdus, hdu_num=None):
         hdus = [hdus[hdu_num]]
 
     for hdu in hdus:
-        colnames = [col.name.lower() for col in hdu.columns]
-        try:
-            x_idx = colnames.index('x') + 1
-            y_idx = colnames.index('y') + 1
-            w = wcs.WCS(hdu.header, keysel=['pixel'], colsel=(x_idx, y_idx))
-        except:
-            pass
-        else:
-            return hdu, w
+        hdr = hdu.header.copy()
+
+        # Need at least two WCS header keywords
+        if len(hdr['TCTYP*']) >= 2:
+            # Related to bug in astropy https://github.com/astropy/astropy/issues/11413
+            del hdr['LONP*']
+            del hdr['LATP*']
+
+            # Remove all WCS except for (x, y) => (RA, Dec). I could not figure
+            # out how to make things work without doing this.
+            for key, val in hdr['TCTYP*'].items():
+                if match := re.search(r'(\d+)$', key):
+                    colnum = match.group(1)
+                    if val in ('RA---TAN', 'DEC--TAN'):
+                        # CXC seems to use a non-standard convention of a
+                        # zero-based origin for CRPIX. The FITS standard
+                        # requires that the first "image pixel" has a coordinate
+                        # of 1.0. See:
+                        # https://github.com/astropy/astropy/issues/11808.
+                        # Munging the header here makes the WCS object function
+                        # as expected with the high-level world/pixel
+                        # transforms.
+                        hdr[f'TCRPX{colnum}'] += 1.0
+                    else:
+                        del hdr[f'TC*{colnum}']
+                else:
+                    print(f'WARNING: got a column {key} that looks like WCS but does not '
+                          'end with a number')
+
+            with warnings.catch_warnings():
+                # For some reason FITS/WCS seems to think many of the CXC header
+                # keywords are non-standard and need to be fixed.
+                warnings.simplefilter('ignore', category=FITSFixedWarning)
+                wcs = WCS(hdr, keysel=['pixel'])
+
+            return hdu, wcs
     else:
         raise TypeError('FITS file has no event table extensions')
 
@@ -97,27 +129,41 @@ class FITSEventList(object):
         events_x = events['x']
         self.events = events[np.argsort(events_x)]
 
-    def pix2world(self, x, y):
+    def pixel_to_world(self, x, y):
         """
         Get world coordinates for (x, y)
 
         :param x: Pixel x value
         :param y: Pixel y value
 
-        :returns: World coordinate (ra, dec) values
+        :returns: SkyCoord
+            World coordinate (ra, dec) values
         """
-        return self.wcs.wcs_pix2world([[x, y]], 1)[0]
+        return self.wcs.pixel_to_worl(x, y)
 
-    def world2pix(self, ra, dec):
+    def world_to_pixel(self, *args):
         """
         Get pixel coordinates for (ra, dec)
 
-        :param ra: World ra value
-        :param dec: World dec value
+        :param *args: coordinate(s)
+            Either one SkyCoord or two value (ra, dec) in degrees
 
         :returns: pixel coordinate (x, y) values
         """
-        return self.wcs.wcs_world2pix([[ra, dec]], 1)[0]
+        if len(args) == 1:
+            sc = args[0]
+        elif len(args) == 2:
+            ra = args[0]
+            if not isinstance(ra, u.Quantity):
+                ra = ra * u.deg
+            dec = args[0]
+            if not isinstance(dec, u.Quantity):
+                dec = dec * u.deg
+            sc = SkyCoord(ra, dec)
+        else:
+            raise ValueError('must supply either 1 or 2 positional args')
+
+        return self.wcs.world_to_pixel(sc)
 
     def image(self, x0=None, x1=None, binx=1.0, y0=None, y1=None, biny=1.0,
               filters=None, dtype=np.int32):
@@ -165,12 +211,15 @@ class FITSEventList(object):
             img = np.zeros((len(x_bins) - 1, len(y_bins) - 1))
 
         # Find the position in image coords of the sky pix reference position
-        # The -0.5 assumes that image coords refer to the center of the image bin.
-        x_crpix = (self.wcs.wcs.crpix[0] - (x0 - binx / 2.0)) / binx
-        y_crpix = (self.wcs.wcs.crpix[1] - (y0 - biny / 2.0)) / biny
+        # The -0.5 assumes that image coords refer to the center of the image
+        # bin. Subtracting 1 from CRPIX is to undo where 1 gets added when the
+        # WCS object is first created. I don't understand this perfectly but it
+        # does make the header WCS values match those created by CIAO DM.
+        x_crpix = (self.wcs.wcs.crpix[0] - 1 - (x0 - binx / 2.0)) / binx
+        y_crpix = (self.wcs.wcs.crpix[1] - 1 - (y0 - biny / 2.0)) / biny
 
         # Create the image => sky transformation
-        w = wcs.WCS(naxis=2)
+        w = WCS(naxis=2)
         w.wcs.equinox = 2000.0
         w.wcs.crpix = [x_crpix, y_crpix]
         w.wcs.cdelt = [self.wcs.wcs.cdelt[0] * binx, self.wcs.wcs.cdelt[1] * biny]
@@ -180,7 +229,7 @@ class FITSEventList(object):
         header = w.to_header()
 
         # Create the image => physical transformation and add to header
-        w = wcs.WCS(naxis=2)
+        w = WCS(naxis=2)
         w.wcs.crpix = [0.5, 0.5]
         w.wcs.cdelt = [binx, biny]
         w.wcs.crval = [x0, y0]
