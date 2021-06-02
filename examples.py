@@ -27,18 +27,18 @@ evt = xrayevents.XrayEvents('t/acis_evt2.fits.gz')
 img = evt.image(x0=4000, x1=4100, binx=10, y0=4000, y1=4100, biny=10)
 img.writeto('bin10_img.fits', clobber=True)
 
-print img.header
-print img.data
+print(img.header)
+print(img.data)
 
 dmimg = fits.open('t/acis_dm_bin10_img.fits.gz')[0]
-print dmimg.header
-print dmimg.data
+print(dmimg.header)
+print(dmimg.data)
 
 ra, dec = evt.pix2sky(3900, 4250)
-print ra, dec
+print(ra, dec)
 
 x, y = evt.sky2pix(ra, dec)
-print x, y
+print(x, y)
 
 
 # Emulate dmcopy command
@@ -47,7 +47,7 @@ print x, y
 
 img_hard = evt.image(x0=4000, x1=4100, binx=10, y0=4000, y1=4100, biny=10,
                      filters=[('energy', 2000., 7000.)])
-print img_hard.data
+print(img_hard.data)
     
 # Use pyregion
 
@@ -55,11 +55,11 @@ import pyregion
 regions = pyregion.open('t/ds9.reg')
 
 for region in regions:
-    print region, "\n"
+    print(region, "\n")
     
-print regions[0].name
-print regions[0].coord_format
-print regions[0].coord_list
+print(regions[0].name)
+print(regions[0].coord_format)
+print(regions[0].coord_list)
 
 img2 = evt.image(binx=5, biny=5)
 
