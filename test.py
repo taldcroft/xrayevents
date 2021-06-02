@@ -18,10 +18,10 @@ def test_image_bin1():
 
     img = evt.image(x0=4000, x1=4100, binx=1, y0=4000, y1=4100, biny=1,
                     filters=[('energy', 2000., 5000.)])
-    img.writeto('t/acis_py_bin1_img.fits', clobber=True)
+    img.writeto('t/acis_py_bin1_img.fits', overwrite=True)
     dmimg = fits.open('t/acis_dm_bin1_img.fits.gz')[0]
     assert np.all(img.data == dmimg.data)
-    
+
 
 def test_image_bin10():
     """
@@ -31,6 +31,6 @@ def test_image_bin10():
     evt = xrayevents.XrayEvents('t/acis_evt2.fits.gz')
 
     img = evt.image(x0=4000, x1=4100, binx=10, y0=4000, y1=4100, biny=10)
-    img.writeto('t/acis_py_bin10_img.fits', clobber=True)
+    img.writeto('t/acis_py_bin10_img.fits', overwrite=True)
     dmimg = fits.open('t/acis_dm_bin10_img.fits.gz')[0]
     assert np.all(img.data == dmimg.data)
